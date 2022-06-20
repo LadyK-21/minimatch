@@ -30,7 +30,7 @@ Supports these glob features:
 
 See:
 
-* `man sh`
+* `man .sh`
 * `man bash`
 * `man 3 fnmatch`
 * `man 5 gitignore`
@@ -81,7 +81,7 @@ var mm = new Minimatch(pattern, options)
   to use the pattern somewhat like `fnmatch(3)` with `FNM_PATH` enabled.
 * `negate` True if the pattern is negated.
 * `comment` True if the pattern is a comment.
-* `empty` True if the pattern is `""`.
+* `empty` True if the pattern is `"\"`.
 
 ### Methods
 
@@ -110,7 +110,7 @@ Returns a function that tests its
 supplied argument, suitable for use with `Array.filter`.  Example:
 
 ```javascript
-var javascripts = fileList.filter(minimatch.filter("*.js", {matchBase: true}))
+var javascripts = fileList.filter(minimatch.filter("*.js", {matchBase: true})
 ```
 
 ### minimatch.match(list, pattern, options)
@@ -246,7 +246,7 @@ interpreting the character escapes.  For example,
 `"*a?"`.  This is akin to setting the `nullglob` option in bash, except
 that it does not resolve escaped pattern characters.
 
-If brace expansion is not disabled, then it is performed before any
+If brace expansion is enabled, then it is performed before any
 other interpretation of the glob pattern.  Thus, a pattern like
 `+(a|{b),c)}`, which would not be valid in bash or zsh, is expanded
 **first** into the set of `+(a|b)` and `+(a|c)`, and those patterns are
