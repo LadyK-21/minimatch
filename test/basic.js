@@ -3,10 +3,18 @@
 // TODO: Some of these tests do very bad things with backslashes, and will
 // most likely fail badly on windows.  They should probably be skipped.
 
-const t = require('tap')
+import t from 'tap'
 const globalBefore = Object.keys(global)
-const mm = require('../')
-const patterns = require('./patterns.js')
+import { GLOBSTAR, minimatch } from '../dist/esm/index.js'
+import patterns from './patterns.js'
+
+const mm = process.env._MINIMATCH_TEST_OPTIMIZATION_LEVEL
+  ? minimatch.defaults({
+      optimizationLevel: +process.env._MINIMATCH_TEST_OPTIMIZATION_LEVEL,
+    })
+  : minimatch
+
+const optimizationLevel = +(process.env._MINIMATCH_TEST_OPTIMIZATION_LEVEL ?? 1)
 
 t.test('basic tests', function (t) {
   var start = Date.now()
@@ -20,27 +28,50 @@ t.test('basic tests', function (t) {
       expect = c[1].sort(alpha),
       options = c[2] || {},
       f = c[3] || patterns.files,
-      tapOpts = c[4] || {}
+      tapOpts = c[4] || {},
+      ast = mm.AST.fromGlob(pattern, options)
 
     // options.debug = true
+    t.matchSnapshot(ast.hasMagic, pattern + ' hasMagic pre-generate')
+    ast.toRegExpSource()
+    t.matchSnapshot(ast.toJSON(), pattern + ' parsed')
+    t.matchSnapshot(ast.hasMagic, pattern + ' hasMagic known')
     var m = new mm.Minimatch(pattern, options)
     var r = m.makeRe()
     var r2 = mm.makeRe(pattern, options)
     t.equal(String(r), String(r2), 'same results from both makeRe fns')
     tapOpts.re = r
     tapOpts.files = JSON.stringify(f)
-    tapOpts.pattern = pattern
+    tapOpts.glob = pattern
     tapOpts.set = m.set
+    tapOpts.globSet = m.globSet
     tapOpts.negated = m.negate
+    const o = Object.entries(options)
+      .filter(([_, v]) => v)
+      .map(([k]) => k)
+    if (o.length) {
+      tapOpts.flags = o
+    }
 
     var actual = mm.match(f, pattern, options)
     actual.sort(alpha)
 
-    t.same(
-      actual, expect,
-      JSON.stringify(pattern) + ' ' + JSON.stringify(expect),
-      tapOpts
-    )
+    if (optimizationLevel > 0) {
+      t.same(
+        actual,
+        expect,
+        JSON.stringify(pattern) + ' ' + JSON.stringify(expect),
+        tapOpts
+      )
+    } else {
+      // optimization level 0 just doesn't match a lot of stuff
+      // quite the same way, so handle that with snapshots.
+      t.matchSnapshot(
+        actual,
+        JSON.stringify(pattern) + ' ' + JSON.stringify(expect),
+        tapOpts
+      )
+    }
 
     t.matchSnapshot(tapOpts.re, 'makeRe ' + pattern, tapOpts)
   })
@@ -51,7 +82,7 @@ t.test('basic tests', function (t) {
 
 t.test('global leak test', function (t) {
   var globalAfter = Object.keys(global).filter(function (k) {
-    return (k !== '__coverage__' && k !== '__core-js_shared__')
+    return k !== '__coverage__' && k !== '__core-js_shared__'
   })
   t.same(globalAfter, globalBefore, 'no new globals, please')
   t.end()
@@ -66,16 +97,7 @@ t.test('invalid patterns', t => {
   t.throws(() => mm.match(['xy'], toolong), expectTooLong)
 
   const invalid = { message: 'invalid pattern' }
-  const invalids = [
-    null,
-    1234,
-    NaN,
-    Infinity,
-    undefined,
-    {a: 1},
-    true,
-    false,
-  ]
+  const invalids = [null, 1234, NaN, Infinity, undefined, { a: 1 }, true, false]
   for (const i of invalids) {
     t.throws(() => mm.braceExpand(i), invalid)
     t.throws(() => new mm.Minimatch(i), invalid)
@@ -113,7 +135,7 @@ t.test('whitespace handling', t => {
 
 t.test('mm debug', t => {
   const { error } = console
-  t.teardown(() => console.error = error)
+  t.teardown(() => (console.error = error))
   const errs = []
   console.error = (...msg) => errs.push(msg)
   t.equal(mm('a/b/c', 'a/**/@(b|c)/**', { debug: true }), true)
@@ -149,7 +171,7 @@ t.test('flipNegate', t => {
   t.end()
 })
 
-function alpha (a, b) {
+function alpha(a, b) {
   return a > b ? 1 : -1
 }
 
@@ -220,5 +242,56 @@ t.test('globstar re matches zero or more path portions', t => {
       t.end()
     })
   }
+  t.end()
+})
+
+t.test('do not create empty pattern via ..', t => {
+  const m = new mm.Minimatch('*/..')
+  t.equal(m.globParts.length, 1)
+  t.not(m.globParts[0].length, 0)
+  t.end()
+})
+
+t.test('option to only nocase regexps, not strings', t => {
+  t.match(
+    new mm.Minimatch('test/*.js', {
+      nocase: true,
+      nocaseMagicOnly: true,
+    }).set,
+    [['test', /^(?!\.)[^/]*?\.js$/i]]
+  )
+  t.match(
+    new mm.Minimatch('test/*.js', {
+      nocase: true,
+    }).set,
+    [[/^test$/i, /^(?!\.)[^/]*?\.js$/i]]
+  )
+  t.end()
+})
+
+t.test('preprocess out multiple ** portions, opt 0', t => {
+  const { set } = new mm.Minimatch('test/**/**/**/**/**/**/*.js', {
+    optimizationLevel: 0,
+  })
+  t.match(set, [['test', GLOBSTAR, /^(?!\.)[^/]*?\.js$/]])
+  t.end()
+})
+
+t.test('preprocess out multiple ** portions, opt 1', t => {
+  const { set } = new mm.Minimatch('test/**/**/**/**/**/**/*.js', {
+    optimizationLevel: 1,
+  })
+  t.match(set, [['test', GLOBSTAR, /^(?!\.)[^/]*?\.js$/]])
+  t.end()
+})
+
+t.test('preprocess out multiple ** portions, opt 2', t => {
+  const m = new mm.Minimatch('test/**/**/**/**/**/**/*.js', {
+    optimizationLevel: 2,
+  })
+  t.match(m.set, [['test', GLOBSTAR, /^(?!\.)[^/]*?\.js$/]])
+
+  // optimize the file, too
+  t.equal(m.match('test//.//a/x.js'), true)
   t.end()
 })

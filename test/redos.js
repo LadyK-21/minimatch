@@ -1,6 +1,5 @@
-var t = require('tap')
-
-var minimatch = require('../')
+import t from 'tap'
+import { minimatch } from '../dist/esm/index.js'
 
 // utility function for generating long strings
 var genstr = function (len, chr) {

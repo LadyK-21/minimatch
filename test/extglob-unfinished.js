@@ -1,5 +1,5 @@
-var t = require('tap')
-var mm = require('../')
+import t from 'tap'
+import { minimatch as mm } from '../dist/esm/index.js'
 
 var types = '!?+*@'.split('')
 
